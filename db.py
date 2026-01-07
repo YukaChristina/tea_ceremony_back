@@ -20,5 +20,13 @@ DATABASE_URL = (
     f"@{DB_HOST}:{DB_PORT}/{DB_NAME}?charset=utf8mb4"
 )
 
-engine = create_engine(DATABASE_URL, echo=True, pool_pre_ping=True)
+engine = create_engine(
+    DATABASE_URL,
+    pool_pre_ping=True,
+    connect_args={
+        "ssl": {
+            "ssl_mode": "REQUIRED"
+        }
+    },
+)
 SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
