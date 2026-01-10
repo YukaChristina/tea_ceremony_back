@@ -47,8 +47,15 @@ def health_db():
     finally:
         db.close()
 
-# ===== ここから追加 =====
-
+@app.get("/debug/db")
+def debug_db():
+    db = SessionLocal()
+    try:
+        row = db.execute(text("SELECT DATABASE() AS current_db, @@hostname AS host, @@port AS port")).mappings().first()
+        return dict(row)
+    finally:
+        db.close()
+        
 class LessonCreate(BaseModel):
     practiced_on: date
     practice_name: str | None = None
@@ -90,6 +97,62 @@ def create_lesson(payload: LessonCreate):
 
 from typing import Optional, Literal
 from fastapi import Query
+
+# 稽古一覧取得API（亭主/客の最初の点前名も含む）
+from fastapi import HTTPException
+
+@app.get("/lessons")
+def list_lessons():
+    db = SessionLocal()
+    try:
+        sql = text("""
+            SELECT
+              l.id,
+              l.practiced_on,
+              l.practice_name,
+
+              (
+                SELECT re.temae_name
+                FROM role_entries re
+                WHERE re.lesson_id = l.id
+                  AND re.role = 'teishu'
+                  AND re.temae_name IS NOT NULL
+                ORDER BY re.id DESC
+                LIMIT 1
+              ) AS teishu_temae_name,
+
+              (
+                SELECT re.temae_name
+                FROM role_entries re
+                WHERE re.lesson_id = l.id
+                  AND re.role = 'kyaku'
+                  AND re.temae_name IS NOT NULL
+                ORDER BY re.id DESC
+                LIMIT 1
+              ) AS kyaku_temae_name
+
+            FROM lessons l
+            WHERE l.user_id = 1
+            ORDER BY l.practiced_on DESC, l.id DESC
+            LIMIT 200
+        """)
+        rows = db.execute(sql).mappings().all()
+
+        return [
+            {
+                "id": r["id"],
+                "practiced_on": str(r["practiced_on"]),
+                "practice_name": r["practice_name"],
+                "teishu_temae_name": r["teishu_temae_name"],
+                "kyaku_temae_name": r["kyaku_temae_name"],
+            }
+            for r in rows
+        ]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
 
 @app.get("/search")
 #検索条件を全部"任意"として受け取るための入口（Optional, なければNone）
