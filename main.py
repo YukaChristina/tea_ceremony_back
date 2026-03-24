@@ -1,4 +1,4 @@
-from fastapi import FastAPI, HTTPException
+from fastapi import FastAPI, HTTPException, UploadFile, File as FastAPIFile
 from sqlalchemy import text
 from db import SessionLocal
 from pydantic import BaseModel
@@ -6,6 +6,26 @@ from datetime import date
 
 app = FastAPI()
 from fastapi.middleware.cors import CORSMiddleware
+
+# ── 起動時マイグレーション ────────────────────────────────────────────────────
+@app.on_event("startup")
+def run_migrations():
+    db = SessionLocal()
+    try:
+        db.execute(text("""
+            CREATE TABLE IF NOT EXISTS lesson_photos (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              lesson_id INT NOT NULL,
+              user_id INT NOT NULL DEFAULT 1,
+              url VARCHAR(1024) NOT NULL,
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+              INDEX idx_lesson_id (lesson_id),
+              INDEX idx_user_id (user_id)
+            )
+        """))
+        db.commit()
+    finally:
+        db.close()
 
 app.add_middleware(
     CORSMiddleware,
@@ -646,6 +666,92 @@ def add_item_to_lesson(lesson_id: int, body: ItemCreate):
         raise
     except Exception as e:
         db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+# ─── 写真 ────────────────────────────────────────────────────────────────────
+
+class PhotoCreate(BaseModel):
+    url: str
+
+
+@app.post("/lessons/{lesson_id}/photos")
+def add_photo(lesson_id: int, body: PhotoCreate):
+    """写真URLを1件保存する"""
+    db = SessionLocal()
+    try:
+        lesson = db.execute(
+            text("SELECT id FROM lessons WHERE id=:lesson_id AND user_id=:user_id LIMIT 1"),
+            {"lesson_id": lesson_id, "user_id": 1},
+        ).mappings().first()
+        if not lesson:
+            raise HTTPException(status_code=404, detail="Lesson not found")
+
+        db.execute(
+            text("INSERT INTO lesson_photos (lesson_id, user_id, url) VALUES (:lesson_id, :user_id, :url)"),
+            {"lesson_id": lesson_id, "user_id": 1, "url": body.url},
+        )
+        db.commit()
+
+        new_row = db.execute(
+            text("SELECT id, lesson_id, url, created_at FROM lesson_photos WHERE lesson_id=:lesson_id ORDER BY id DESC LIMIT 1"),
+            {"lesson_id": lesson_id},
+        ).mappings().first()
+        return {"photo": {"id": new_row["id"], "lesson_id": new_row["lesson_id"], "url": new_row["url"], "created_at": str(new_row["created_at"])}}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+@app.get("/lessons/{lesson_id}/photos")
+def get_lesson_photos(lesson_id: int):
+    """稽古に紐づく写真一覧を返す"""
+    db = SessionLocal()
+    try:
+        rows = db.execute(
+            text("SELECT id, lesson_id, url, created_at FROM lesson_photos WHERE lesson_id=:lesson_id ORDER BY id ASC"),
+            {"lesson_id": lesson_id},
+        ).mappings().all()
+        return [{"id": r["id"], "lesson_id": r["lesson_id"], "url": r["url"], "created_at": str(r["created_at"])} for r in rows]
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+@app.get("/photos")
+def list_all_photos():
+    """全写真をアルバム用に返す（稽古情報付き）"""
+    db = SessionLocal()
+    try:
+        sql = text("""
+            SELECT p.id, p.lesson_id, p.url, p.created_at,
+                   l.practiced_on, l.practice_name
+            FROM lesson_photos p
+            JOIN lessons l ON l.id = p.lesson_id
+            WHERE l.user_id = 1
+            ORDER BY p.created_at DESC
+            LIMIT 300
+        """)
+        rows = db.execute(sql).mappings().all()
+        return [
+            {
+                "id": r["id"],
+                "lesson_id": r["lesson_id"],
+                "url": r["url"],
+                "created_at": str(r["created_at"]),
+                "practiced_on": str(r["practiced_on"]),
+                "practice_name": r["practice_name"],
+            }
+            for r in rows
+        ]
+    except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
