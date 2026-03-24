@@ -381,6 +381,50 @@ def get_lesson_detail(lesson_id: int):
         db.close()
 
 
+@app.delete("/lessons/{lesson_id}/items")
+def delete_lesson_items(lesson_id: int):
+    db = SessionLocal()
+    try:
+        lesson = db.execute(
+            text("SELECT id FROM lessons WHERE id=:lesson_id AND user_id=:user_id LIMIT 1"),
+            {"lesson_id": lesson_id, "user_id": 1},
+        ).mappings().first()
+        if not lesson:
+            raise HTTPException(status_code=404, detail="Lesson not found")
+        db.execute(text("DELETE FROM lesson_items WHERE lesson_id = :lesson_id"), {"lesson_id": lesson_id})
+        db.commit()
+        return {"deleted": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
+@app.delete("/lessons/{lesson_id}/role-entries")
+def delete_lesson_role_entries(lesson_id: int):
+    db = SessionLocal()
+    try:
+        lesson = db.execute(
+            text("SELECT id FROM lessons WHERE id=:lesson_id AND user_id=:user_id LIMIT 1"),
+            {"lesson_id": lesson_id, "user_id": 1},
+        ).mappings().first()
+        if not lesson:
+            raise HTTPException(status_code=404, detail="Lesson not found")
+        db.execute(text("DELETE FROM role_entries WHERE lesson_id = :lesson_id"), {"lesson_id": lesson_id})
+        db.commit()
+        return {"deleted": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
 class LessonUpdate(BaseModel):
     practiced_on: Optional[date] = None
     practice_name: Optional[str] = None
