@@ -605,27 +605,13 @@ def add_item_to_lesson(lesson_id: int, body: ItemCreate):
             inferred_section = body.section or "chashitsu"
             temae_name = ""
 
-        # 2) search_text を生成（検索用）
-        # ※ここは後で好きなだけ増やせます（作者/銘/稽古名/点前名など）
-        parts = [
-            inferred_section,
-            temae_name,            # 点前名（role_entryがある場合）
-            body.item_type,
-            body.title or "",
-            body.mei or "",
-            body.maker or "",
-            body.note or "",
-            practice_name,         # 稽古名（イベント名）
-        ]
-        search_text = " ".join([p for p in parts if p])
-
-        # 3) INSERT
+        # 2) INSERT
         db.execute(
             text("""
                 INSERT INTO lesson_items
-                  (lesson_id, role_entry_id, section, item_type, title, mei, maker, note, search_text)
+                  (lesson_id, role_entry_id, section, item_type, title, mei, maker, note)
                 VALUES
-                  (:lesson_id, :role_entry_id, :section, :item_type, :title, :mei, :maker, :note, :search_text)
+                  (:lesson_id, :role_entry_id, :section, :item_type, :title, :mei, :maker, :note)
             """),
             {
                 "lesson_id": lesson_id,
@@ -636,7 +622,6 @@ def add_item_to_lesson(lesson_id: int, body: ItemCreate):
                 "mei": body.mei,
                 "maker": body.maker,
                 "note": body.note,
-                "search_text": search_text,
             },
         )
         db.commit()
