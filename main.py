@@ -755,3 +755,31 @@ def list_all_photos():
         raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
+
+
+@app.delete("/admin/cleanup/lessons-before-2026-02")
+def cleanup_old_lessons():
+    """2026-02-01 より前の稽古データを全削除（一時管理用）"""
+    db = SessionLocal()
+    try:
+        cutoff = "2026-02-01"
+        ids_rows = db.execute(
+            text("SELECT id FROM lessons WHERE practiced_on < :cutoff"),
+            {"cutoff": cutoff},
+        ).fetchall()
+        lesson_ids = [r[0] for r in ids_rows]
+        if not lesson_ids:
+            return {"deleted_lessons": 0}
+
+        id_list = ",".join(str(i) for i in lesson_ids)
+        db.execute(text(f"DELETE FROM lesson_photos WHERE lesson_id IN ({id_list})"))
+        db.execute(text(f"DELETE FROM lesson_items  WHERE lesson_id IN ({id_list})"))
+        db.execute(text(f"DELETE FROM role_entries  WHERE lesson_id IN ({id_list})"))
+        db.execute(text(f"DELETE FROM lessons       WHERE id         IN ({id_list})"))
+        db.commit()
+        return {"deleted_lessons": len(lesson_ids), "ids": lesson_ids}
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
