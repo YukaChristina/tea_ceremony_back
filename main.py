@@ -381,6 +381,41 @@ def get_lesson_detail(lesson_id: int):
         db.close()
 
 
+class LessonUpdate(BaseModel):
+    practiced_on: Optional[date] = None
+    practice_name: Optional[str] = None
+
+@app.patch("/lessons/{lesson_id}")
+def update_lesson(lesson_id: int, payload: LessonUpdate):
+    db = SessionLocal()
+    try:
+        lesson = db.execute(
+            text("SELECT id FROM lessons WHERE id=:lesson_id AND user_id=:user_id LIMIT 1"),
+            {"lesson_id": lesson_id, "user_id": 1},
+        ).mappings().first()
+        if not lesson:
+            raise HTTPException(status_code=404, detail="Lesson not found")
+
+        db.execute(
+            text("""
+                UPDATE lessons
+                SET practiced_on = COALESCE(:practiced_on, practiced_on),
+                    practice_name = COALESCE(:practice_name, practice_name)
+                WHERE id = :lesson_id
+            """),
+            {"lesson_id": lesson_id, "practiced_on": payload.practiced_on, "practice_name": payload.practice_name},
+        )
+        db.commit()
+        return {"lesson_id": lesson_id}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
 # 亭主/客の点前エントリを追加するAPI
 class RoleEntryCreate(BaseModel):
     role: Literal["teishu", "kyaku"]
