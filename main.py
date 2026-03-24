@@ -197,7 +197,7 @@ def search_items(
               AND (:practice_name IS NULL OR l.practice_name LIKE CONCAT('%', :practice_name, '%'))
               AND (:item_type IS NULL OR i.item_type = :item_type)
               AND (:section IS NULL OR i.section = :section)
-              AND (:q_like IS NULL OR i.search_text LIKE :q_like)
+              AND (:q_like IS NULL OR CONCAT(COALESCE(i.title,''),' ',COALESCE(i.mei,''),' ',COALESCE(i.maker,''),' ',COALESCE(i.note,'')) LIKE :q_like)
             ORDER BY l.practiced_on DESC, i.id DESC
             LIMIT :limit OFFSET :offset
         """)
@@ -630,7 +630,7 @@ def add_item_to_lesson(lesson_id: int, body: ItemCreate):
         new_item = db.execute(
             text("""
                 SELECT
-                  id, lesson_id, role_entry_id, section, item_type, title, mei, maker, note, search_text, created_at
+                  id, lesson_id, role_entry_id, section, item_type, title, mei, maker, note, created_at
                 FROM lesson_items
                 WHERE lesson_id = :lesson_id
                 ORDER BY id DESC
