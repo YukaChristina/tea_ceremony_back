@@ -13,6 +13,15 @@ def run_migrations():
     db = SessionLocal()
     try:
         db.execute(text("""
+            CREATE TABLE IF NOT EXISTS users (
+              id INT AUTO_INCREMENT PRIMARY KEY,
+              email VARCHAR(255) UNIQUE NOT NULL,
+              display_name VARCHAR(100),
+              role ENUM('user', 'admin') DEFAULT 'user',
+              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+            )
+        """))
+        db.execute(text("""
             CREATE TABLE IF NOT EXISTS lesson_photos (
               id INT AUTO_INCREMENT PRIMARY KEY,
               lesson_id INT NOT NULL,
