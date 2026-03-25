@@ -1,8 +1,50 @@
-from fastapi import FastAPI, HTTPException, UploadFile, File as FastAPIFile
+from fastapi import FastAPI, HTTPException, UploadFile, File as FastAPIFile, Depends, Header
 from sqlalchemy import text
 from db import SessionLocal
 from pydantic import BaseModel
 from datetime import date
+import jwt
+import os
+
+SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET")
+
+def get_current_user_id(authorization: str = Header(default=None)) -> int:
+    if not authorization or not authorization.startswith("Bearer "):
+        raise HTTPException(status_code=401, detail="Not authenticated")
+    token = authorization[7:]
+    try:
+        payload = jwt.decode(
+            token,
+            SUPABASE_JWT_SECRET,
+            algorithms=["HS256"],
+            options={"verify_aud": False},
+        )
+    except Exception as e:
+        raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
+
+    supabase_uid = payload.get("sub")
+    if not supabase_uid:
+        raise HTTPException(status_code=401, detail="Invalid token: no sub")
+
+    db = SessionLocal()
+    try:
+        user = db.execute(
+            text("SELECT id FROM users WHERE supabase_uid = :uid"),
+            {"uid": supabase_uid},
+        ).mappings().first()
+
+        if user:
+            return user["id"]
+
+        # 初回ログイン時：usersテーブルに自動登録
+        result = db.execute(
+            text("INSERT INTO users (supabase_uid, email, display_name) VALUES (:uid, :email, :name) RETURNING id"),
+            {"uid": supabase_uid, "email": payload.get("email", ""), "name": payload.get("email", "").split("@")[0]},
+        )
+        db.commit()
+        return result.scalar()
+    finally:
+        db.close()
 
 app = FastAPI()
 from fastapi.middleware.cors import CORSMiddleware
@@ -57,11 +99,7 @@ class LessonCreate(BaseModel):
 
 
 @app.post("/lessons")
-def create_lesson(payload: LessonCreate):
-    """
-    稽古を1件作成するAPI
-    - user_id は MVPでは固定で 1
-    """
+def create_lesson(payload: LessonCreate, current_user_id: int = Depends(get_current_user_id)):
     db = SessionLocal()
     try:
         sql = text("""
@@ -72,7 +110,7 @@ def create_lesson(payload: LessonCreate):
         result = db.execute(
             sql,
             {
-                "user_id": 1,
+                "user_id": current_user_id,
                 "practiced_on": payload.practiced_on,
                 "practice_name": payload.practice_name,
             }
@@ -98,7 +136,7 @@ from fastapi import Query
 from fastapi import HTTPException
 
 @app.get("/lessons")
-def list_lessons():
+def list_lessons(current_user_id: int = Depends(get_current_user_id)):
     db = SessionLocal()
     try:
         sql = text("""
@@ -128,11 +166,11 @@ def list_lessons():
               ) AS kyaku_temae_name
 
             FROM lessons l
-            WHERE l.user_id = 1
+            WHERE l.user_id = :user_id
             ORDER BY l.practiced_on DESC, l.id DESC
             LIMIT 200
         """)
-        rows = db.execute(sql).mappings().all()
+        rows = db.execute(sql, {"user_id": current_user_id}).mappings().all()
 
         return [
             {
@@ -160,6 +198,7 @@ def search_items(
     section: Optional[str] = Query(default=None, description="chashitsu / teishu / kyaku"),
     limit: int = Query(default=50, ge=1, le=200),
     offset: int = Query(default=0, ge=0),
+    current_user_id: int = Depends(get_current_user_id),
 ):
     """
     振り返り検索（1本で両対応）
@@ -202,7 +241,7 @@ def search_items(
         rows = db.execute(
             sql,
             {
-                "user_id": 1,
+                "user_id": current_user_id,
                 "year": year,
                 "practice_name": practice_name,
                 "item_type": item_type,
@@ -253,7 +292,7 @@ def search_items(
 
 #稽古1件を開いたときに茶室/亭主/客のタブ構造で返すAPI
 @app.get("/lessons/{lesson_id}")
-def get_lesson_detail(lesson_id: int):
+def get_lesson_detail(lesson_id: int, current_user_id: int = Depends(get_current_user_id)):
     """
     1つの稽古（lesson）を、タブ表示しやすい構造で返す
     - chashitsu: role_entry_id = NULL の道具
@@ -269,7 +308,7 @@ def get_lesson_detail(lesson_id: int):
             LIMIT 1
         """)
         lesson = db.execute(
-            lesson_sql, {"lesson_id": lesson_id, "user_id": 1}
+            lesson_sql, {"lesson_id": lesson_id, "user_id": current_user_id}
         ).mappings().first()
 
         if not lesson:
@@ -379,12 +418,12 @@ def get_lesson_detail(lesson_id: int):
 
 
 @app.delete("/lessons/{lesson_id}/items")
-def delete_lesson_items(lesson_id: int):
+def delete_lesson_items(lesson_id: int, current_user_id: int = Depends(get_current_user_id)):
     db = SessionLocal()
     try:
         lesson = db.execute(
             text("SELECT id FROM lessons WHERE id=:lesson_id AND user_id=:user_id LIMIT 1"),
-            {"lesson_id": lesson_id, "user_id": 1},
+            {"lesson_id": lesson_id, "user_id": current_user_id},
         ).mappings().first()
         if not lesson:
             raise HTTPException(status_code=404, detail="Lesson not found")
@@ -401,12 +440,12 @@ def delete_lesson_items(lesson_id: int):
 
 
 @app.delete("/lessons/{lesson_id}/role-entries")
-def delete_lesson_role_entries(lesson_id: int):
+def delete_lesson_role_entries(lesson_id: int, current_user_id: int = Depends(get_current_user_id)):
     db = SessionLocal()
     try:
         lesson = db.execute(
             text("SELECT id FROM lessons WHERE id=:lesson_id AND user_id=:user_id LIMIT 1"),
-            {"lesson_id": lesson_id, "user_id": 1},
+            {"lesson_id": lesson_id, "user_id": current_user_id},
         ).mappings().first()
         if not lesson:
             raise HTTPException(status_code=404, detail="Lesson not found")
@@ -427,12 +466,12 @@ class LessonUpdate(BaseModel):
     practice_name: Optional[str] = None
 
 @app.patch("/lessons/{lesson_id}")
-def update_lesson(lesson_id: int, payload: LessonUpdate):
+def update_lesson(lesson_id: int, payload: LessonUpdate, current_user_id: int = Depends(get_current_user_id)):
     db = SessionLocal()
     try:
         lesson = db.execute(
             text("SELECT id FROM lessons WHERE id=:lesson_id AND user_id=:user_id LIMIT 1"),
-            {"lesson_id": lesson_id, "user_id": 1},
+            {"lesson_id": lesson_id, "user_id": current_user_id},
         ).mappings().first()
         if not lesson:
             raise HTTPException(status_code=404, detail="Lesson not found")
@@ -464,13 +503,12 @@ class RoleEntryCreate(BaseModel):
     note: Optional[str] = None
 
 @app.post("/lessons/{lesson_id}/role-entries")
-def create_role_entry(lesson_id: int, body: RoleEntryCreate):
+def create_role_entry(lesson_id: int, body: RoleEntryCreate, current_user_id: int = Depends(get_current_user_id)):
     db = SessionLocal()
     try:
-        # lesson存在確認（いまは user_id=1 固定）
         lesson = db.execute(
             text("SELECT id FROM lessons WHERE id=:lesson_id AND user_id=:user_id LIMIT 1"),
-            {"lesson_id": lesson_id, "user_id": 1},
+            {"lesson_id": lesson_id, "user_id": current_user_id},
         ).mappings().first()
         if not lesson:
             raise HTTPException(status_code=404, detail="Lesson not found")
@@ -540,7 +578,7 @@ class ItemCreate(BaseModel):
 
 
 @app.post("/lessons/{lesson_id}/items")
-def add_item_to_lesson(lesson_id: int, body: ItemCreate):
+def add_item_to_lesson(lesson_id: int, body: ItemCreate, current_user_id: int = Depends(get_current_user_id)):
     """
     道具追加API（role_entry_id対応 + search_text自動生成）
 
@@ -551,8 +589,6 @@ def add_item_to_lesson(lesson_id: int, body: ItemCreate):
     """
     db = SessionLocal()
     try:
-        USER_ID = 1  # MVPは固定（後で認証を入れたら差し替え）
-
         # 0) lesson存在確認 + 稽古名取得（search_text用）
         lesson_row = db.execute(
             text("""
@@ -561,7 +597,7 @@ def add_item_to_lesson(lesson_id: int, body: ItemCreate):
                 WHERE id = :lesson_id AND user_id = :user_id
                 LIMIT 1
             """),
-            {"lesson_id": lesson_id, "user_id": USER_ID},
+            {"lesson_id": lesson_id, "user_id": current_user_id},
         ).mappings().first()
 
         if not lesson_row:
@@ -655,20 +691,20 @@ class PhotoCreate(BaseModel):
 
 
 @app.post("/lessons/{lesson_id}/photos")
-def add_photo(lesson_id: int, body: PhotoCreate):
+def add_photo(lesson_id: int, body: PhotoCreate, current_user_id: int = Depends(get_current_user_id)):
     """写真URLを1件保存する"""
     db = SessionLocal()
     try:
         lesson = db.execute(
             text("SELECT id FROM lessons WHERE id=:lesson_id AND user_id=:user_id LIMIT 1"),
-            {"lesson_id": lesson_id, "user_id": 1},
+            {"lesson_id": lesson_id, "user_id": current_user_id},
         ).mappings().first()
         if not lesson:
             raise HTTPException(status_code=404, detail="Lesson not found")
 
         db.execute(
             text("INSERT INTO lesson_photos (lesson_id, user_id, url) VALUES (:lesson_id, :user_id, :url)"),
-            {"lesson_id": lesson_id, "user_id": 1, "url": body.url},
+            {"lesson_id": lesson_id, "user_id": current_user_id, "url": body.url},
         )
         db.commit()
 
@@ -703,7 +739,7 @@ def get_lesson_photos(lesson_id: int):
 
 
 @app.get("/photos")
-def list_all_photos():
+def list_all_photos(current_user_id: int = Depends(get_current_user_id)):
     """全写真をアルバム用に返す（稽古情報付き）"""
     db = SessionLocal()
     try:
@@ -712,11 +748,11 @@ def list_all_photos():
                    l.practiced_on, l.practice_name
             FROM lesson_photos p
             JOIN lessons l ON l.id = p.lesson_id
-            WHERE l.user_id = 1
+            WHERE l.user_id = :user_id
             ORDER BY p.created_at DESC
             LIMIT 300
         """)
-        rows = db.execute(sql).mappings().all()
+        rows = db.execute(sql, {"user_id": current_user_id}).mappings().all()
         return [
             {
                 "id": r["id"],
