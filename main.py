@@ -67,6 +67,7 @@ def create_lesson(payload: LessonCreate):
         sql = text("""
             INSERT INTO lessons (user_id, practiced_on, practice_name)
             VALUES (:user_id, :practiced_on, :practice_name)
+            RETURNING id
         """)
         result = db.execute(
             sql,
@@ -78,7 +79,7 @@ def create_lesson(payload: LessonCreate):
         )
         db.commit()
 
-        lesson_id = result.lastrowid
+        lesson_id = result.scalar()
         return {
             "lesson_id": lesson_id,
             "practiced_on": payload.practiced_on,
