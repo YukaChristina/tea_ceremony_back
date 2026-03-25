@@ -7,34 +7,6 @@ from datetime import date
 app = FastAPI()
 from fastapi.middleware.cors import CORSMiddleware
 
-# ── 起動時マイグレーション ────────────────────────────────────────────────────
-@app.on_event("startup")
-def run_migrations():
-    db = SessionLocal()
-    try:
-        db.execute(text("""
-            CREATE TABLE IF NOT EXISTS users (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              email VARCHAR(255) UNIQUE NOT NULL,
-              display_name VARCHAR(100),
-              role ENUM('user', 'admin') DEFAULT 'user',
-              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-            )
-        """))
-        db.execute(text("""
-            CREATE TABLE IF NOT EXISTS lesson_photos (
-              id INT AUTO_INCREMENT PRIMARY KEY,
-              lesson_id INT NOT NULL,
-              user_id INT NOT NULL DEFAULT 1,
-              url VARCHAR(1024) NOT NULL,
-              created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-              INDEX idx_lesson_id (lesson_id),
-              INDEX idx_user_id (user_id)
-            )
-        """))
-        db.commit()
-    finally:
-        db.close()
 
 app.add_middleware(
     CORSMiddleware,
@@ -65,7 +37,7 @@ def health_db():
         one = db.execute(text("SELECT 1")).scalar()
 
         # 2) テーブル一覧確認（任意だが分かりやすい）
-        tables = db.execute(text("SHOW TABLES")).fetchall()
+        tables = db.execute(text("SELECT tablename FROM pg_tables WHERE schemaname = 'public'")).fetchall()
         table_names = [row[0] for row in tables]
 
         return {
@@ -80,7 +52,7 @@ def health_db():
 def debug_db():
     db = SessionLocal()
     try:
-        row = db.execute(text("SELECT DATABASE() AS current_db, @@hostname AS host, @@port AS port")).mappings().first()
+        row = db.execute(text("SELECT current_database() AS current_db, inet_server_addr() AS host, inet_server_port() AS port")).mappings().first()
         return dict(row)
     finally:
         db.close()
@@ -222,7 +194,7 @@ def search_items(
             FROM lessons l
             JOIN lesson_items i ON i.lesson_id = l.id
             WHERE l.user_id = :user_id
-              AND (:year IS NULL OR YEAR(l.practiced_on) = :year)
+              AND (:year IS NULL OR EXTRACT(YEAR FROM l.practiced_on) = :year)
               AND (:practice_name IS NULL OR l.practice_name LIKE CONCAT('%', :practice_name, '%'))
               AND (:item_type IS NULL OR i.item_type = :item_type)
               AND (:section IS NULL OR i.section = :section)

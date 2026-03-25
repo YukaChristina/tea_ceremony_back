@@ -9,7 +9,7 @@ h11==0.16.0
 idna==3.11
 pydantic==2.12.5
 pydantic_core==2.41.5
-PyMySQL==1.1.2
+psycopg2-binary==2.9.9
 python-dotenv==1.2.1
 SQLAlchemy==2.0.45
 starlette==0.50.0
