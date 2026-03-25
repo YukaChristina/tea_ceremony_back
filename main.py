@@ -31,7 +31,6 @@ def health_db():
     - SELECT 1 が成功するか
     - users/lessons/lesson_items が存在するか（SHOW TABLES）
     """
-    import os
     db = SessionLocal()
     try:
         one = db.execute(text("SELECT 1")).scalar()
@@ -39,9 +38,7 @@ def health_db():
         table_names = [row[0] for row in tables]
         return {"db_ok": True, "select_1": one, "tables": table_names}
     except Exception as e:
-        db_url = os.getenv("DATABASE_URL", "NOT SET")
-        masked = db_url[:30] + "..." if len(db_url) > 30 else db_url
-        return {"db_ok": False, "error": str(e), "database_url_prefix": masked}
+        raise HTTPException(status_code=500, detail=str(e))
     finally:
         db.close()
 
