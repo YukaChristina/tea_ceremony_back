@@ -187,13 +187,14 @@ def search_items(
               i.maker         AS maker,
               i.note          AS note
             FROM lessons l
-            JOIN lesson_items i ON i.lesson_id = l.id
+            LEFT JOIN lesson_items i ON i.lesson_id = l.id
             WHERE l.user_id = :user_id
               AND (:year IS NULL OR EXTRACT(YEAR FROM l.practiced_on) = :year)
               AND (:practice_name IS NULL OR l.practice_name LIKE CONCAT('%', :practice_name, '%'))
               AND (:item_type IS NULL OR i.item_type = :item_type)
               AND (:section IS NULL OR i.section = :section)
-              AND (:q_like IS NULL OR CONCAT(COALESCE(i.title,''),' ',COALESCE(i.mei,''),' ',COALESCE(i.maker,''),' ',COALESCE(i.note,'')) LIKE :q_like)
+              AND (:q_like IS NULL OR l.practice_name LIKE :q_like
+                   OR CONCAT(COALESCE(i.title,''),' ',COALESCE(i.mei,''),' ',COALESCE(i.maker,''),' ',COALESCE(i.note,'')) LIKE :q_like)
             ORDER BY l.practiced_on DESC, i.id DESC
             LIMIT :limit OFFSET :offset
         """)
