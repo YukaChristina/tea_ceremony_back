@@ -4,7 +4,7 @@ from db import SessionLocal
 from pydantic import BaseModel
 from datetime import date
 import jwt
-from jwt.algorithms import RSAAlgorithm
+from jwt.algorithms import RSAAlgorithm, ECAlgorithm, OKPAlgorithm
 import os
 import urllib.request
 import json
@@ -44,7 +44,15 @@ def get_current_user_id(authorization: str = Header(default=None)) -> int:
             jwk = next((k for k in keys if k.get("kid") == kid), keys[0] if keys else None)
             if not jwk:
                 raise ValueError("No matching JWK found")
-            public_key = RSAAlgorithm.from_jwk(json.dumps(jwk))
+            kty = jwk.get("kty", "RSA")
+            if kty == "RSA":
+                public_key = RSAAlgorithm.from_jwk(json.dumps(jwk))
+            elif kty == "EC":
+                public_key = ECAlgorithm.from_jwk(json.dumps(jwk))
+            elif kty == "OKP":
+                public_key = OKPAlgorithm.from_jwk(json.dumps(jwk))
+            else:
+                raise ValueError(f"Unsupported JWK key type: {kty}")
             payload = jwt.decode(
                 token,
                 public_key,
