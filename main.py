@@ -4,21 +4,53 @@ from db import SessionLocal
 from pydantic import BaseModel
 from datetime import date
 import jwt
+from jwt.algorithms import RSAAlgorithm
 import os
+import urllib.request
+import json
 
 SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET")
+SUPABASE_URL = os.getenv("SUPABASE_URL")  # e.g. https://xxxx.supabase.co
+
+_jwks_cache = None
+
+def _get_jwks():
+    global _jwks_cache
+    if _jwks_cache is None:
+        with urllib.request.urlopen(f"{SUPABASE_URL}/auth/v1/.well-known/jwks.json") as resp:
+            _jwks_cache = json.loads(resp.read())
+    return _jwks_cache
 
 def get_current_user_id(authorization: str = Header(default=None)) -> int:
     if not authorization or not authorization.startswith("Bearer "):
         raise HTTPException(status_code=401, detail="Not authenticated")
     token = authorization[7:]
     try:
-        payload = jwt.decode(
-            token,
-            SUPABASE_JWT_SECRET,
-            algorithms=["HS256"],
-            options={"verify_aud": False},
-        )
+        header = jwt.get_unverified_header(token)
+        alg = header.get("alg", "HS256")
+
+        if alg == "HS256":
+            payload = jwt.decode(
+                token,
+                SUPABASE_JWT_SECRET,
+                algorithms=["HS256"],
+                options={"verify_aud": False},
+            )
+        else:
+            # RS256 など非対称鍵 → Supabase JWKS で検証
+            jwks = _get_jwks()
+            kid = header.get("kid")
+            keys = jwks.get("keys", [])
+            jwk = next((k for k in keys if k.get("kid") == kid), keys[0] if keys else None)
+            if not jwk:
+                raise ValueError("No matching JWK found")
+            public_key = RSAAlgorithm.from_jwk(json.dumps(jwk))
+            payload = jwt.decode(
+                token,
+                public_key,
+                algorithms=[alg],
+                options={"verify_aud": False},
+            )
     except Exception as e:
         raise HTTPException(status_code=401, detail=f"Invalid token: {e}")
 
