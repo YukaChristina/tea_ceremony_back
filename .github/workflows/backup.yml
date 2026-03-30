@@ -20,14 +20,15 @@ jobs:
 
       - name: Export tables as CSV
         run: |
-          mkdir -p backups
+          DATE=$(date -u '+%Y-%m-%d')
+          mkdir -p "backups/${DATE}"
 
           for TABLE in users lessons role_entries lesson_items lesson_photos; do
             curl -s "${{ secrets.SUPABASE_URL }}/rest/v1/${TABLE}?select=*" \
               -H "apikey: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
               -H "Authorization: Bearer ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}" \
               -H "Accept: text/csv" \
-              -o "backups/${TABLE}.csv"
+              -o "backups/${DATE}/${TABLE}.csv"
             echo "Exported ${TABLE}"
           done
 
