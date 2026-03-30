@@ -41,5 +41,13 @@
 - `lesson_items` — lesson_id, role_entry_id, section, item_type, title, mei, maker, note
 - `lesson_photos` — lesson_id, user_id, url
 
+## データバックアップ
+- 設定ファイル: `.github/workflows/backup.yml`
+- 毎週月曜 AM10:00 JST に自動実行（GitHub Actions）
+- 全5テーブルを CSV で `backups/` フォルダに保存・コミット
+- 手動実行: GitHub > Actions > Weekly Database Backup > Run workflow
+- 必要な GitHub Secrets: `SUPABASE_SERVICE_ROLE_KEY`, `SUPABASE_URL`
+- リポジトリの Settings > Actions > General > Workflow permissions を「Read and write」に設定済み
+
 ## デプロイ
 Render (Web Service) — `uvicorn main:app --host 0.0.0.0 --port $PORT`
