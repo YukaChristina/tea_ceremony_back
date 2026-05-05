@@ -66,6 +66,8 @@ def get_current_user_id(authorization: str = Header(default=None)) -> int:
     if not supabase_uid:
         raise HTTPException(status_code=401, detail="Invalid token: no sub")
 
+    email = payload.get("email", "")
+
     db = SessionLocal()
     try:
         user = db.execute(
@@ -76,10 +78,26 @@ def get_current_user_id(authorization: str = Header(default=None)) -> int:
         if user:
             return user["id"]
 
-        # 初回ログイン時：usersテーブルに自動登録
+        # supabase_uid が一致しないが同メールの既存ユーザーがいる場合（Google OAuth 連携）
+        if email:
+            existing = db.execute(
+                text("SELECT id FROM users WHERE email = :email"),
+                {"email": email},
+            ).mappings().first()
+
+            if existing:
+                # supabase_uid を新しいものに更新して紐づける
+                db.execute(
+                    text("UPDATE users SET supabase_uid = :uid WHERE email = :email"),
+                    {"uid": supabase_uid, "email": email},
+                )
+                db.commit()
+                return existing["id"]
+
+        # 完全な新規ユーザー
         result = db.execute(
             text("INSERT INTO users (supabase_uid, email, display_name) VALUES (:uid, :email, :name) RETURNING id"),
-            {"uid": supabase_uid, "email": payload.get("email", ""), "name": payload.get("email", "").split("@")[0]},
+            {"uid": supabase_uid, "email": email, "name": email.split("@")[0]},
         )
         db.commit()
         return result.scalar()
@@ -95,6 +113,7 @@ app.add_middleware(
     allow_origins=[
         "http://localhost:3000",
         "https://tea-ceremony-front.vercel.app",
+        "https://tea-ceremony.yuka-studio.net",
     ],
     allow_credentials=True,
     allow_methods=["*"],
@@ -105,6 +124,18 @@ app.add_middleware(
 @app.get("/")
 def root():
     return {"status": "ok"}
+
+@app.get("/me")
+def get_me(current_user_id: int = Depends(get_current_user_id)):
+    db = SessionLocal()
+    try:
+        user = db.execute(
+            text("SELECT id, supabase_uid, email, display_name FROM users WHERE id = :id"),
+            {"id": current_user_id},
+        ).mappings().first()
+        return dict(user) if user else {"error": "user not found in db"}
+    finally:
+        db.close()
 
 @app.get("/health/db")
 def health_db():
