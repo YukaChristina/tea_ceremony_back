@@ -532,6 +532,32 @@ def delete_lesson_role_entries(lesson_id: int, current_user_id: int = Depends(ge
         db.close()
 
 
+@app.delete("/lessons/{lesson_id}")
+def delete_lesson(lesson_id: int, current_user_id: int = Depends(get_current_user_id)):
+    """稽古本体と、それに紐づく道具・点前・写真をまとめて削除する"""
+    db = SessionLocal()
+    try:
+        lesson = db.execute(
+            text("SELECT id FROM lessons WHERE id=:lesson_id AND user_id=:user_id LIMIT 1"),
+            {"lesson_id": lesson_id, "user_id": current_user_id},
+        ).mappings().first()
+        if not lesson:
+            raise HTTPException(status_code=404, detail="Lesson not found")
+        db.execute(text("DELETE FROM lesson_items WHERE lesson_id = :lesson_id"), {"lesson_id": lesson_id})
+        db.execute(text("DELETE FROM role_entries WHERE lesson_id = :lesson_id"), {"lesson_id": lesson_id})
+        db.execute(text("DELETE FROM lesson_photos WHERE lesson_id = :lesson_id"), {"lesson_id": lesson_id})
+        db.execute(text("DELETE FROM lessons WHERE id = :lesson_id"), {"lesson_id": lesson_id})
+        db.commit()
+        return {"deleted": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
 class LessonUpdate(BaseModel):
     practiced_on: Optional[date] = None
     practice_name: Optional[str] = None
