@@ -460,7 +460,13 @@ def get_lesson_detail(lesson_id: int, current_user_id: int = Depends(get_current
         teishu_entries = [v for v in entry_map.values() if v["role"] == "teishu"]
         kyaku_entries = [v for v in entry_map.values() if v["role"] == "kyaku"]
 
-        # 5) レスポンス
+        # 5) 写真
+        photo_rows = db.execute(
+            text("SELECT id, url FROM lesson_photos WHERE lesson_id=:lesson_id ORDER BY id ASC"),
+            {"lesson_id": lesson_id},
+        ).mappings().all()
+
+        # 6) レスポンス
         return {
             "lesson": {
                 "id": lesson["id"],
@@ -477,7 +483,8 @@ def get_lesson_detail(lesson_id: int, current_user_id: int = Depends(get_current
                 "kyaku": {
                     "entries": kyaku_entries
                 }
-            }
+            },
+            "photos": [{"id": r["id"], "url": r["url"]} for r in photo_rows]
         }
 
     except HTTPException:
