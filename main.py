@@ -819,6 +819,29 @@ def add_photo(lesson_id: int, body: PhotoCreate, current_user_id: int = Depends(
         db.close()
 
 
+@app.delete("/photos/{photo_id}")
+def delete_photo(photo_id: int, current_user_id: int = Depends(get_current_user_id)):
+    """写真を1件削除する"""
+    db = SessionLocal()
+    try:
+        photo = db.execute(
+            text("SELECT id FROM lesson_photos WHERE id=:photo_id AND user_id=:user_id LIMIT 1"),
+            {"photo_id": photo_id, "user_id": current_user_id},
+        ).mappings().first()
+        if not photo:
+            raise HTTPException(status_code=404, detail="Photo not found")
+        db.execute(text("DELETE FROM lesson_photos WHERE id = :photo_id"), {"photo_id": photo_id})
+        db.commit()
+        return {"deleted": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
+
 @app.get("/lessons/{lesson_id}/photos")
 def get_lesson_photos(lesson_id: int):
     """稽古に紐づく写真一覧を返す"""
