@@ -11,6 +11,7 @@ import json
 
 SUPABASE_JWT_SECRET = os.getenv("SUPABASE_JWT_SECRET")
 SUPABASE_URL = os.getenv("SUPABASE_URL")  # e.g. https://xxxx.supabase.co
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
 
 _jwks_cache = None
 
@@ -136,6 +137,54 @@ def get_me(current_user_id: int = Depends(get_current_user_id)):
         return dict(user) if user else {"error": "user not found in db"}
     finally:
         db.close()
+
+
+@app.delete("/me")
+def delete_my_account(current_user_id: int = Depends(get_current_user_id)):
+    """アカウントとそれに紐づく全データを完全に削除する（Apple審査ガイドライン5.1.1(v)対応）"""
+    db = SessionLocal()
+    try:
+        user = db.execute(
+            text("SELECT supabase_uid FROM users WHERE id = :id"),
+            {"id": current_user_id},
+        ).mappings().first()
+        if not user:
+            raise HTTPException(status_code=404, detail="User not found")
+        supabase_uid = user["supabase_uid"]
+
+        lesson_ids = [
+            r["id"] for r in db.execute(
+                text("SELECT id FROM lessons WHERE user_id = :uid"), {"uid": current_user_id}
+            ).mappings().all()
+        ]
+        for lesson_id in lesson_ids:
+            db.execute(text("DELETE FROM lesson_items WHERE lesson_id = :lid"), {"lid": lesson_id})
+            db.execute(text("DELETE FROM role_entries WHERE lesson_id = :lid"), {"lid": lesson_id})
+            db.execute(text("DELETE FROM lesson_photos WHERE lesson_id = :lid"), {"lid": lesson_id})
+        db.execute(text("DELETE FROM lessons WHERE user_id = :uid"), {"uid": current_user_id})
+        db.execute(text("DELETE FROM users WHERE id = :uid"), {"uid": current_user_id})
+        db.commit()
+
+        if SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY:
+            req = urllib.request.Request(
+                f"{SUPABASE_URL}/auth/v1/admin/users/{supabase_uid}",
+                method="DELETE",
+                headers={
+                    "apikey": SUPABASE_SERVICE_ROLE_KEY,
+                    "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+                },
+            )
+            urllib.request.urlopen(req)
+
+        return {"deleted": True}
+    except HTTPException:
+        raise
+    except Exception as e:
+        db.rollback()
+        raise HTTPException(status_code=500, detail=str(e))
+    finally:
+        db.close()
+
 
 @app.get("/health/db")
 def health_db():
